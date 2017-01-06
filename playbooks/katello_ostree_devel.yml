@@ -2,7 +2,8 @@
   become: true
   roles:
     - ostree_repositories
-    foreman_installer_scenario: katello
+    role: foreman_installer
+    foreman_installer_scenario:  katello-devel
     foreman_installer_options_internal_use_only:
       - '--disable-system-checks
-      - '--katello-enable-ostree=true'
+      - '--katello-devel-enable-ostree=true'
