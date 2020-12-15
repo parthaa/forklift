@@ -365,3 +365,69 @@ setup() {
   hammer docker manifest list --content-view-version-id=$cvv_id --fields="schema version,digest,tags" \
     --order='tag' | grep 'sha256:13280b5914050853a87d662c3229d42b61544e36dd4515f06e188835f3407468'
 }
+
+@test "export the content view" {
+  tSkipIfNotPulp3 "Content View Export"
+  run hammer content-export complete version  --version="1.0" --content-view "${CONTENT_VIEW}" --organization "${ORGANIZATION}"
+  [ "$status" -eq 0 ]
+  local export_output=$(echo "${output}" | grep Generated)
+  [ "$?" -eq 0 ]
+  run hammer --output csv --no-headers content-export list --content-view "${CONTENT_VIEW}" --organization "${ORGANIZATION}"\
+   --content-view-version="1.0" --per-page=1 --fields=path --order="id DESC"
+  # $output = /var/lib/pulp/exports/export-19221/view/1.0/2020-12-14T18-49-46-00-00
+  [ "$status" -eq 0 ]
+  echo "${export_output}" | grep "$output"
+  [ "$?" -eq 0 ]
+}
+
+@test "Generate the metadata for the exported content view" {
+  tSkipIfNotPulp3 "Content View Metadata"
+  run hammer --output csv --no-headers content-export list --content-view "${CONTENT_VIEW}" --organization "${ORGANIZATION}"\
+   --content-view-version="1.0" --per-page=1 --fields=id --order="id DESC"
+  # $output = 33
+  local history_id=$output
+  [ "$status" -eq 0 ]
+  run hammer content-export generate-metadata --id="$history_id"
+  [ "$status" -eq 0 ]
+  echo "${output}" | grep Generated
+  [ "$?" -eq 0 ]
+  tFileExists $(find_metadata_file $history_id)
+}
+
+@test "import the content view" {
+  tSkipIfNotPulp3 "Content View Import"
+  local org_id=$(find_or_create_org "${IMPORT_ORGANIZATION}")
+  local product_id=$(find_or_create_product "$PRODUCT" $org_id)
+  local repository_id=$(find_or_create_yum_repository "$YUM_REPOSITORY" $product_id)
+  # create import only content view
+  local content_view_id=$(find_or_create_content_view "$CONTENT_VIEW" $org_id false true)
+  local num_of_versions_before_import=$(hammer --output csv --no-headers   content-view version list\
+                                         --content-view-id=$content_view_id --fields=id| grep -v "^$" |wc -l)
+  [ "$?" -eq 0 ]
+
+  # now fetch the exported
+  run hammer --output csv --no-headers content-export list --content-view "${CONTENT_VIEW}" --organization "${ORGANIZATION}"\
+   --content-view-version="1.0" --per-page=1 --fields=id,path --order="id DESC"
+  # $output = 33,/var/lib/pulp/exports/Test_Organization/Test_CV/1.0/2020-12-11T16-04-08-00-00
+  [ "$status" -eq 0 ]
+  local history_id=$(echo $output | cut -d, -f1) # 33
+  local path=$(echo $output | cut -d, -f2) # /var/lib.....
+
+  local metadata_file=$(find_metadata_file $history_id)
+  local destination_path="/var/lib/pulp/imports/$(basename $path)"
+  # copy the export to /var/lib/pulp/imports directory
+  sudo rm -rf $destination_path
+  [ "$?" -eq 0 ]
+  sudo cp -R $path /var/lib/pulp/imports
+  [ "$?" -eq 0 ]
+  sudo chown -R pulp:pulp /var/lib/pulp/imports
+  [ "$?" -eq 0 ]
+
+  run hammer content-import version --content-view-id=$content_view_id --path=$destination_path --metadata-file="$metadata_file"
+  [ "$status" -eq 0 ]
+
+  local num_of_versions_after_import=$(hammer --output csv --no-headers   content-view version list\
+                                         --content-view-id=$content_view_id --fields=id| grep -v "^$"| wc -l)
+  [ "$?" -eq 0 ]
+  [ $(($num_of_versions_after_import)) -gt $(($num_of_versions_before_import)) ]
+}

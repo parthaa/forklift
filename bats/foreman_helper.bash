@@ -18,6 +18,10 @@ tForemanVersion() {
   ) | cut -d. -f1-2
 }
 
+tIsPulp3() {
+  tPackageExists python3-pulpcore
+}
+
 tIsPulp2() {
   tPackageExists pulp-server
 }
@@ -28,6 +32,11 @@ tSkipIfNoPulp2() {
   fi
 }
 
+tSkipIfNotPulp3() {
+  if ! tIsPulp3; then
+   skip "${1} is not available in scenarios without Pulp 3"
+  fi
+}
 tSkipIfHammerBelow018() {
   if tPackageExists tfm-rubygem-hammer_cli; then
     RPM_PACKAGE=tfm-rubygem-hammer_cli
